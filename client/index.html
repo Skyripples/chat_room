@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>匿名聊天室</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <div class="modal" id="nameModal" aria-modal="true" role="dialog">
+    <form class="modal-card" id="nameForm">
+      <h1>匿名聊天室</h1>
+      <label for="nameInput">暱稱</label>
+      <input
+        type="text"
+        id="nameInput"
+        placeholder="輸入暱稱"
+        autocomplete="off"
+        maxlength="24"
+        required
+      />
+      <button type="submit">進入聊天室</button>
+    </form>
+  </div>
+
+  <div class="modal hidden" id="roomModal" aria-modal="true" role="dialog">
+    <form class="modal-card" id="roomForm">
+      <h2>創建聊天室</h2>
+      <label for="roomNameInput">聊天室名稱</label>
+      <input
+        type="text"
+        id="roomNameInput"
+        placeholder="例如：夜貓聊天"
+        maxlength="60"
+        required
+      />
+      <label for="roomPasswordInput">密碼</label>
+      <input
+        type="password"
+        id="roomPasswordInput"
+        placeholder="留空就是公開聊天室"
+        maxlength="30"
+      />
+      <div class="modal-actions">
+        <button type="button" class="secondary-button" id="cancelRoomButton">取消</button>
+        <button type="submit">建立</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="chat-app">
+    <aside class="sidebar">
+      <header class="sidebar-header">
+        <h1>聊天室</h1>
+        <button class="create-room-button" id="createRoomButton" type="button">創建聊天室</button>
+      </header>
+
+      <div class="room-list" id="roomList"></div>
+    </aside>
+
+    <main class="chat-panel">
+      <header class="chat-header">
+        <div>
+          <h2 id="roomTitle">公開聊天室</h2>
+          <p id="roomStatus">連線中...</p>
+        </div>
+      </header>
+
+      <section class="message-list" id="messageList"></section>
+
+      <div class="private-bar hidden" id="privateBar">
+        <span id="privateTargetText"></span>
+        <button type="button" id="clearPrivateButton">取消私訊</button>
+      </div>
+
+      <form class="message-form" id="messageForm">
+        <input
+          type="text"
+          id="messageInput"
+          placeholder="輸入訊息..."
+          autocomplete="off"
+          disabled
+        />
+        <button type="submit" id="sendButton" disabled>送出</button>
+      </form>
+    </main>
+
+    <aside class="member-panel">
+      <header class="member-header">
+        <h2>聊天室成員</h2>
+        <p id="memberCount">0 人在線</p>
+      </header>
+      <div class="member-list" id="memberList"></div>
+    </aside>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="./main.js"></script>
+</body>
+</html>
