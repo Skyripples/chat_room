@@ -39,17 +39,23 @@ function formatTime(value = new Date()) {
   return `${hour}:${minute}`;
 }
 
-function getPublicRoom(room) {
+function getPublicRoom(room, user) {
   return {
     id: room.id,
     name: room.name,
     isPrivate: Boolean(room.passwordHash),
+    canDelete:
+      room.id !== "public" &&
+      Boolean(room.creatorClientId) &&
+      room.creatorClientId === user?.clientUserId,
   };
 }
 
-function getRoomList() {
+function getRoomList(socketId) {
+  const user = users.get(socketId);
+
   return [...rooms.values()].map((room) => ({
-    ...getPublicRoom(room),
+    ...getPublicRoom(room, user),
     userCount: io.sockets.adapter.rooms.get(room.id)?.size ?? 0,
   }));
 }
@@ -64,7 +70,9 @@ function getRoomUsers(roomId) {
 }
 
 function emitRoomList() {
-  io.emit("room-list", getRoomList());
+  io.sockets.sockets.forEach((socket) => {
+    socket.emit("room-list", getRoomList(socket.id));
+  });
 }
 
 function emitRoomUsers(roomId) {
@@ -80,6 +88,8 @@ async function loadRooms() {
       id,
       name,
       password_hash AS passwordHash,
+      creator_client_id AS creatorClientId,
+      creator_name AS creatorName,
       created_at AS createdAt
     FROM rooms
     ORDER BY created_at ASC
@@ -93,6 +103,8 @@ async function loadRooms() {
       id: room.id,
       name: room.name,
       passwordHash: room.passwordHash,
+      creatorClientId: room.creatorClientId,
+      creatorName: room.creatorName,
       createdAt: room.createdAt,
     });
   });
@@ -140,7 +152,7 @@ async function joinRoom(socket, roomId) {
   user.currentRoomId = room.id;
   socket.join(room.id);
 
-  socket.emit("room-joined", getPublicRoom(room));
+  socket.emit("room-joined", getPublicRoom(room, user));
   socket.emit("room-history", await getRoomHistory(room.id));
 
   io.to(room.id).emit("system-message", `${user.username}已進入聊天室`);
@@ -148,21 +160,46 @@ async function joinRoom(socket, roomId) {
   emitRoomList();
 }
 
+async function moveRoomMembersToPublic(room) {
+  const memberSocketIds = [...(io.sockets.adapter.rooms.get(room.id) ?? [])];
+
+  for (const socketId of memberSocketIds) {
+    const memberSocket = io.sockets.sockets.get(socketId);
+
+    if (!memberSocket) continue;
+
+    memberSocket.emit("room-deleted", {
+      roomId: room.id,
+      roomName: room.name,
+    });
+    await joinRoom(memberSocket, "public");
+  }
+}
+
 await loadRooms();
 
 io.on("connection", (socket) => {
-  socket.emit("room-list", getRoomList());
+  socket.emit("room-list", getRoomList(socket.id));
 
-  socket.on("register-user", async (username, callback) => {
-    const cleanName = String(username ?? "").trim().slice(0, 24);
+  socket.on("register-user", async (payload, callback) => {
+    const username =
+      typeof payload === "string" ? payload : String(payload?.username ?? "");
+    const cleanName = username.trim().slice(0, 24);
+    const clientUserId = String(payload?.clientUserId ?? "").trim().slice(0, 64);
 
     if (!cleanName) {
       callback?.({ ok: false, error: "請輸入使用者名稱" });
       return;
     }
 
+    if (!clientUserId) {
+      callback?.({ ok: false, error: "無法辨識建立者，請重新整理後再試" });
+      return;
+    }
+
     users.set(socket.id, {
       username: cleanName,
+      clientUserId,
       currentRoomId: "",
     });
 
@@ -189,25 +226,76 @@ io.on("connection", (socket) => {
       id: randomUUID(),
       name,
       passwordHash: hashPassword(password),
+      creatorClientId: user.clientUserId,
+      creatorName: user.username,
       createdAt: new Date(),
     };
 
     try {
       await pool.execute(
         `
-        INSERT INTO rooms (id, name, password_hash)
-        VALUES (?, ?, ?)
+        INSERT INTO rooms (
+          id,
+          name,
+          password_hash,
+          creator_client_id,
+          creator_name
+        )
+        VALUES (?, ?, ?, ?, ?)
         `,
-        [room.id, room.name, room.passwordHash],
+        [
+          room.id,
+          room.name,
+          room.passwordHash,
+          room.creatorClientId,
+          room.creatorName,
+        ],
       );
 
       rooms.set(room.id, room);
       emitRoomList();
       await joinRoom(socket, room.id);
-      callback?.({ ok: true, room: getPublicRoom(room) });
+      callback?.({ ok: true, room: getPublicRoom(room, user) });
     } catch (error) {
       console.error("建立聊天室失敗:", error);
       callback?.({ ok: false, error: "建立聊天室失敗" });
+    }
+  });
+
+  socket.on("delete-room", async (payload, callback) => {
+    const user = users.get(socket.id);
+    const room = rooms.get(String(payload?.roomId ?? ""));
+
+    if (!user) {
+      callback?.({ ok: false, error: "請先輸入使用者名稱" });
+      return;
+    }
+
+    if (!room) {
+      callback?.({ ok: false, error: "聊天室不存在" });
+      return;
+    }
+
+    if (room.id === "public") {
+      callback?.({ ok: false, error: "公開聊天室不能刪除" });
+      return;
+    }
+
+    if (!room.creatorClientId || room.creatorClientId !== user.clientUserId) {
+      callback?.({ ok: false, error: "只有建立者可以刪除聊天室" });
+      return;
+    }
+
+    try {
+      await pool.execute("DELETE FROM messages WHERE room_id = ?", [room.id]);
+      await pool.execute("DELETE FROM rooms WHERE id = ?", [room.id]);
+      rooms.delete(room.id);
+      await moveRoomMembersToPublic(room);
+      emitRoomList();
+      callback?.({ ok: true });
+    } catch (error) {
+      console.error("刪除聊天室失敗:", error);
+      callback?.({ ok: false, error: "刪除聊天室失敗" });
     }
   });
 
@@ -232,7 +320,7 @@ io.on("connection", (socket) => {
     }
 
     await joinRoom(socket, room.id);
-    callback?.({ ok: true, room: getPublicRoom(room) });
+    callback?.({ ok: true, room: getPublicRoom(room, user) });
   });
 
   socket.on("chat-message", async (message) => {

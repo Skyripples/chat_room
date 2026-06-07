@@ -45,15 +45,37 @@ const pool = mysql.createPool({
   charset: "utf8mb4",
 });
 
+async function ensureColumn(table, column, definition) {
+  const [columns] = await pool.execute(`SHOW COLUMNS FROM ${table}`);
+  const columnNames = new Set(columns.map((item) => item.Field));
+
+  if (!columnNames.has(column)) {
+    await pool.execute(`ALTER TABLE ${table} ADD COLUMN ${definition}`);
+  }
+}
+
 export async function initDatabase() {
   await pool.execute(`
     CREATE TABLE IF NOT EXISTS rooms (
       id VARCHAR(36) PRIMARY KEY,
       name VARCHAR(60) NOT NULL,
       password_hash VARCHAR(64) NULL,
+      creator_client_id VARCHAR(64) NULL,
+      creator_name VARCHAR(24) NULL,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
+
+  await ensureColumn(
+    "rooms",
+    "creator_client_id",
+    "creator_client_id VARCHAR(64) NULL AFTER password_hash",
+  );
+  await ensureColumn(
+    "rooms",
+    "creator_name",
+    "creator_name VARCHAR(24) NULL AFTER creator_client_id",
+  );
 
   await pool.execute(`
     CREATE TABLE IF NOT EXISTS messages (
@@ -69,37 +91,26 @@ export async function initDatabase() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
 
-  const [columns] = await pool.execute("SHOW COLUMNS FROM messages");
-  const columnNames = new Set(columns.map((column) => column.Field));
-
-  if (!columnNames.has("message_type")) {
-    await pool.execute(`
-      ALTER TABLE messages
-      ADD COLUMN message_type ENUM('room', 'private') NOT NULL DEFAULT 'room'
-      AFTER message
-    `);
-  }
-
-  if (!columnNames.has("recipient_socket_id")) {
-    await pool.execute(`
-      ALTER TABLE messages
-      ADD COLUMN recipient_socket_id VARCHAR(128) NULL
-      AFTER message_type
-    `);
-  }
-
-  if (!columnNames.has("recipient_name")) {
-    await pool.execute(`
-      ALTER TABLE messages
-      ADD COLUMN recipient_name VARCHAR(24) NULL
-      AFTER recipient_socket_id
-    `);
-  }
+  await ensureColumn(
+    "messages",
+    "message_type",
+    "message_type ENUM('room', 'private') NOT NULL DEFAULT 'room' AFTER message",
+  );
+  await ensureColumn(
+    "messages",
+    "recipient_socket_id",
+    "recipient_socket_id VARCHAR(128) NULL AFTER message_type",
+  );
+  await ensureColumn(
+    "messages",
+    "recipient_name",
+    "recipient_name VARCHAR(24) NULL AFTER recipient_socket_id",
+  );
 
   await pool.execute(
     `
-    INSERT INTO rooms (id, name, password_hash)
-    VALUES ('public', '公開聊天室', NULL)
+    INSERT INTO rooms (id, name, password_hash, creator_client_id, creator_name)
+    VALUES ('public', '公開聊天室', NULL, NULL, NULL)
     ON DUPLICATE KEY UPDATE name = VALUES(name)
     `,
   );

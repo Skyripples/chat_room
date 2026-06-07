@@ -15,6 +15,7 @@ const socketUrl = (() => {
 })();
 const socket = socketUrl ? io(socketUrl, socketOptions) : io();
 
+const CLIENT_ID_STORAGE_KEY = "anonymousChatClientId";
 const nameModal = document.getElementById("nameModal");
 const nameForm = document.getElementById("nameForm");
 const nameInput = document.getElementById("nameInput");
@@ -43,6 +44,20 @@ let currentRoomId = "";
 let rooms = [];
 let roomUsers = [];
 let privateTarget = null;
+let clientUserId = getClientUserId();
+
+function getClientUserId() {
+  const existingId = localStorage.getItem(CLIENT_ID_STORAGE_KEY);
+
+  if (existingId) return existingId;
+
+  const nextId =
+    window.crypto?.randomUUID?.() ??
+    `client-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+  localStorage.setItem(CLIENT_ID_STORAGE_KEY, nextId);
+  return nextId;
+}
 
 function escapeHtml(text) {
   return String(text)
@@ -132,40 +147,69 @@ function appendMessage(message) {
   messageList.scrollTop = messageList.scrollHeight;
 }
 
+function joinRoom(room) {
+  let password = "";
+
+  if (room.id === currentRoomId) return;
+
+  if (room.isPrivate) {
+    password = window.prompt(`請輸入「${room.name}」的密碼`) ?? "";
+  }
+
+  socket.emit("join-room", { roomId: room.id, password }, (response) => {
+    if (!response?.ok) {
+      window.alert(response?.error ?? "無法加入聊天室");
+    }
+  });
+}
+
+function deleteRoom(room) {
+  const confirmed = window.confirm(
+    `確定要刪除「${room.name}」嗎？\n聊天室與其中的公開訊息會一起刪除。`,
+  );
+
+  if (!confirmed) return;
+
+  socket.emit("delete-room", { roomId: room.id }, (response) => {
+    if (!response?.ok) {
+      window.alert(response?.error ?? "無法刪除聊天室");
+    }
+  });
+}
+
 function renderRooms() {
   roomList.innerHTML = "";
 
   rooms.forEach((room) => {
-    const button = document.createElement("button");
+    const item = document.createElement("div");
+    const openButton = document.createElement("button");
     const label = room.name.slice(0, 1) || "聊";
 
-    button.type = "button";
-    button.className = `room-item ${room.id === currentRoomId ? "active" : ""}`;
-    button.innerHTML = `
+    item.className = `room-item ${room.id === currentRoomId ? "active" : ""}`;
+    openButton.type = "button";
+    openButton.className = "room-open-button";
+    openButton.innerHTML = `
       <span class="avatar">${escapeHtml(label)}</span>
       <span class="room-info">
         <span class="room-name">${escapeHtml(room.name)}</span>
         <span class="room-meta">${room.isPrivate ? "私人聊天室" : "公開聊天室"} · ${room.userCount} 人</span>
       </span>
     `;
+    openButton.addEventListener("click", () => joinRoom(room));
 
-    button.addEventListener("click", () => {
-      if (room.id === currentRoomId) return;
+    item.appendChild(openButton);
 
-      let password = "";
+    if (room.canDelete) {
+      const deleteButton = document.createElement("button");
 
-      if (room.isPrivate) {
-        password = window.prompt(`請輸入「${room.name}」的密碼`) ?? "";
-      }
+      deleteButton.type = "button";
+      deleteButton.className = "room-delete-button";
+      deleteButton.textContent = "刪除";
+      deleteButton.addEventListener("click", () => deleteRoom(room));
+      item.appendChild(deleteButton);
+    }
 
-      socket.emit("join-room", { roomId: room.id, password }, (response) => {
-        if (!response?.ok) {
-          window.alert(response?.error ?? "無法加入聊天室");
-        }
-      });
-    });
-
-    roomList.appendChild(button);
+    roomList.appendChild(item);
   });
 }
 
@@ -204,18 +248,25 @@ nameForm.addEventListener("submit", (event) => {
 
   if (!value) return;
 
-  socket.emit("register-user", value, (response) => {
-    if (!response?.ok) {
-      window.alert(response?.error ?? "無法進入聊天室");
-      return;
-    }
+  socket.emit(
+    "register-user",
+    {
+      username: value,
+      clientUserId,
+    },
+    (response) => {
+      if (!response?.ok) {
+        window.alert(response?.error ?? "無法進入聊天室");
+        return;
+      }
 
-    username = value;
-    selfId = response.userId;
-    nameModal.classList.add("hidden");
-    updateReadyState();
-    messageInput.focus();
-  });
+      username = value;
+      selfId = response.userId;
+      nameModal.classList.add("hidden");
+      updateReadyState();
+      messageInput.focus();
+    },
+  );
 });
 
 createRoomButton.addEventListener("click", () => {
@@ -327,6 +378,10 @@ socket.on("room-users", (users) => {
 
   renderMembers();
   updateReadyState();
+});
+
+socket.on("room-deleted", (room) => {
+  appendSystemMessage(`「${room.roomName}」已被刪除，你已回到公開聊天室`);
 });
 
 socket.on("system-message", (text) => {

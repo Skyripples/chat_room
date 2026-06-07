@@ -165,7 +165,6 @@ button:disabled {
   overflow-y: auto;
 }
 
-.room-item,
 .member-item {
   display: grid;
   width: 100%;
@@ -177,9 +176,37 @@ button:disabled {
 }
 
 .room-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  width: 100%;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+}
+
+.room-open-button {
+  display: grid;
   grid-template-columns: 48px minmax(0, 1fr);
   gap: 12px;
+  min-width: 0;
   padding: 14px 16px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.room-delete-button {
+  align-self: center;
+  min-width: 56px;
+  height: 32px;
+  margin-right: 12px;
+  border: 1px solid #f1b5b5;
+  border-radius: 8px;
+  background: #fff5f5;
+  color: #b42318;
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .member-item {
@@ -189,8 +216,8 @@ button:disabled {
   padding: 12px 14px;
 }
 
-.room-item:hover,
-.room-item.active,
+.room-item:hover .room-open-button,
+.room-item.active .room-open-button,
 .member-item:hover,
 .member-item.active {
   background: #f3f6f9;
