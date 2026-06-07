@@ -1,4 +1,19 @@
-const socket = io();
+const socketOptions = {};
+const socketUrl = (() => {
+  const hostname = window.location.hostname;
+
+  if (hostname === "localhost" || hostname === "127.0.0.1") {
+    return undefined;
+  }
+
+  if (hostname === "skyripples.github.io") {
+    socketOptions.path = "/chat-socket.io/";
+    return "https://api.jiangshemg.space";
+  }
+
+  return undefined;
+})();
+const socket = socketUrl ? io(socketUrl, socketOptions) : io();
 
 const nameModal = document.getElementById("nameModal");
 const nameForm = document.getElementById("nameForm");
