@@ -1,3 +1,6 @@
+const MESSAGE_MAX_CHARS = 100;
+const CLIENT_ID_STORAGE_KEY = "anonymousChatClientId";
+const THEME_STORAGE_KEY = "anonymousChatTheme";
 const socketOptions = {};
 const socketUrl = (() => {
   const hostname = window.location.hostname;
@@ -15,7 +18,6 @@ const socketUrl = (() => {
 })();
 const socket = socketUrl ? io(socketUrl, socketOptions) : io();
 
-const CLIENT_ID_STORAGE_KEY = "anonymousChatClientId";
 const nameModal = document.getElementById("nameModal");
 const nameForm = document.getElementById("nameForm");
 const nameInput = document.getElementById("nameInput");
@@ -23,8 +25,11 @@ const roomModal = document.getElementById("roomModal");
 const roomForm = document.getElementById("roomForm");
 const roomNameInput = document.getElementById("roomNameInput");
 const roomPasswordInput = document.getElementById("roomPasswordInput");
+const roomLimitToggle = document.getElementById("roomLimitToggle");
+const roomLimitInput = document.getElementById("roomLimitInput");
 const cancelRoomButton = document.getElementById("cancelRoomButton");
 const createRoomButton = document.getElementById("createRoomButton");
+const themeToggleButton = document.getElementById("themeToggleButton");
 const roomList = document.getElementById("roomList");
 const roomTitle = document.getElementById("roomTitle");
 const roomStatus = document.getElementById("roomStatus");
@@ -45,6 +50,9 @@ let rooms = [];
 let roomUsers = [];
 let privateTarget = null;
 let clientUserId = getClientUserId();
+let currentTheme = getInitialTheme();
+
+applyTheme(currentTheme);
 
 function getClientUserId() {
   const existingId = localStorage.getItem(CLIENT_ID_STORAGE_KEY);
@@ -57,6 +65,36 @@ function getClientUserId() {
 
   localStorage.setItem(CLIENT_ID_STORAGE_KEY, nextId);
   return nextId;
+}
+
+function getInitialTheme() {
+  const savedTheme = localStorage.getItem(THEME_STORAGE_KEY);
+
+  if (savedTheme === "dark" || savedTheme === "light") {
+    return savedTheme;
+  }
+
+  return window.matchMedia?.("(prefers-color-scheme: dark)")?.matches
+    ? "dark"
+    : "light";
+}
+
+function applyTheme(theme) {
+  currentTheme = theme;
+  document.body.dataset.theme = theme;
+  localStorage.setItem(THEME_STORAGE_KEY, theme);
+
+  if (themeToggleButton) {
+    themeToggleButton.textContent = theme === "dark" ? "淺色模式" : "深色模式";
+    themeToggleButton.setAttribute(
+      "aria-label",
+      theme === "dark" ? "切換為淺色模式" : "切換為深色模式",
+    );
+  }
+}
+
+function countChars(text) {
+  return Array.from(text).length;
 }
 
 function escapeHtml(text) {
@@ -86,8 +124,9 @@ function updateReadyState() {
   } else {
     const room = rooms.find((item) => item.id === currentRoomId);
     const count = room?.userCount ?? 0;
+    const maxUsers = room?.maxUsers ?? 100;
 
-    roomStatus.textContent = `${count} 人在線`;
+    roomStatus.textContent = `${count}/${maxUsers} 人在線`;
   }
 
   setInputEnabled(socket.connected && hasName && hasRoom);
@@ -192,7 +231,7 @@ function renderRooms() {
       <span class="avatar">${escapeHtml(label)}</span>
       <span class="room-info">
         <span class="room-name">${escapeHtml(room.name)}</span>
-        <span class="room-meta">${room.isPrivate ? "私人聊天室" : "公開聊天室"} · ${room.userCount} 人</span>
+        <span class="room-meta">${room.isPrivate ? "私人聊天室" : "公開聊天室"} · ${room.userCount}/${room.maxUsers} 人</span>
       </span>
     `;
     openButton.addEventListener("click", () => joinRoom(room));
@@ -241,6 +280,12 @@ function renderMembers() {
   });
 }
 
+function handleSendFailure(response, originalText) {
+  messageInput.value = response?.rejectedText ?? originalText;
+  window.alert(response?.error ?? "訊息送出失敗");
+  messageInput.focus();
+}
+
 nameForm.addEventListener("submit", (event) => {
   event.preventDefault();
 
@@ -276,6 +321,8 @@ createRoomButton.addEventListener("click", () => {
   }
 
   roomForm.reset();
+  roomLimitInput.disabled = true;
+  roomLimitInput.value = "100";
   roomModal.classList.remove("hidden");
   roomNameInput.focus();
 });
@@ -284,14 +331,39 @@ cancelRoomButton.addEventListener("click", () => {
   roomModal.classList.add("hidden");
 });
 
+themeToggleButton.addEventListener("click", () => {
+  applyTheme(currentTheme === "dark" ? "light" : "dark");
+});
+
+roomLimitToggle.addEventListener("change", () => {
+  roomLimitInput.disabled = !roomLimitToggle.checked;
+
+  if (roomLimitToggle.checked) {
+    roomLimitInput.focus();
+  } else {
+    roomLimitInput.value = "100";
+  }
+});
+
 roomForm.addEventListener("submit", (event) => {
   event.preventDefault();
+
+  const limitEnabled = roomLimitToggle.checked;
+  const maxUsers = Number(roomLimitInput.value);
+
+  if (limitEnabled && (!Number.isInteger(maxUsers) || maxUsers < 2 || maxUsers > 100)) {
+    window.alert("人數限制必須介於 2 到 100 人");
+    roomLimitInput.focus();
+    return;
+  }
 
   socket.emit(
     "create-room",
     {
       name: roomNameInput.value.trim(),
       password: roomPasswordInput.value.trim(),
+      limitEnabled,
+      maxUsers,
     },
     (response) => {
       if (!response?.ok) {
@@ -313,31 +385,48 @@ clearPrivateButton.addEventListener("click", () => {
 messageForm.addEventListener("submit", (event) => {
   event.preventDefault();
 
-  const text = messageInput.value.trim();
+  const originalText = messageInput.value;
+  const text = originalText.trim();
 
   if (!text || !username || !socket.connected || !currentRoomId) return;
+
+  if (countChars(text) > MESSAGE_MAX_CHARS) {
+    window.alert(`每則訊息最多 ${MESSAGE_MAX_CHARS} 個字，請刪減後再送出。`);
+    messageInput.value = originalText;
+    messageInput.focus();
+    return;
+  }
+
+  sendButton.disabled = true;
 
   if (privateTarget) {
     socket.emit(
       "private-message",
       {
         targetUserId: privateTarget.id,
-        text,
+        text: originalText,
       },
       (response) => {
         if (!response?.ok) {
-          window.alert(response?.error ?? "私訊送出失敗");
-          setPrivateTarget(null);
-          renderMembers();
+          handleSendFailure(response, originalText);
+        } else {
+          messageInput.value = "";
         }
+
+        updateReadyState();
       },
     );
   } else {
-    socket.emit("chat-message", { text });
-  }
+    socket.emit("chat-message", { text: originalText }, (response) => {
+      if (!response?.ok) {
+        handleSendFailure(response, originalText);
+      } else {
+        messageInput.value = "";
+      }
 
-  messageInput.value = "";
-  messageInput.focus();
+      updateReadyState();
+    });
+  }
 });
 
 socket.on("connect", () => {

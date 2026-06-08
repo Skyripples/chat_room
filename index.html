@@ -41,6 +41,18 @@
         placeholder="留空就是公開聊天室"
         maxlength="30"
       />
+      <label class="checkbox-row" for="roomLimitToggle">
+        <input type="checkbox" id="roomLimitToggle" />
+        <span>限制聊天室人數</span>
+      </label>
+      <input
+        type="number"
+        id="roomLimitInput"
+        min="2"
+        max="100"
+        value="100"
+        disabled
+      />
       <div class="modal-actions">
         <button type="button" class="secondary-button" id="cancelRoomButton">取消</button>
         <button type="submit">建立</button>
@@ -52,6 +64,7 @@
     <aside class="sidebar">
       <header class="sidebar-header">
         <h1>聊天室</h1>
+        <button class="theme-toggle-button" id="themeToggleButton" type="button">深色模式</button>
         <button class="create-room-button" id="createRoomButton" type="button">創建聊天室</button>
       </header>
 

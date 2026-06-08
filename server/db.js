@@ -59,13 +59,23 @@ export async function initDatabase() {
     CREATE TABLE IF NOT EXISTS rooms (
       id VARCHAR(36) PRIMARY KEY,
       name VARCHAR(60) NOT NULL,
+      normalized_name VARCHAR(60) NULL,
       password_hash VARCHAR(64) NULL,
       creator_client_id VARCHAR(64) NULL,
       creator_name VARCHAR(24) NULL,
-      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      creator_ip VARCHAR(64) NULL,
+      max_users INT NOT NULL DEFAULT 100,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_rooms_creator_ip (creator_ip),
+      INDEX idx_rooms_normalized_name (normalized_name)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
 
+  await ensureColumn(
+    "rooms",
+    "normalized_name",
+    "normalized_name VARCHAR(60) NULL AFTER name",
+  );
   await ensureColumn(
     "rooms",
     "creator_client_id",
@@ -76,6 +86,22 @@ export async function initDatabase() {
     "creator_name",
     "creator_name VARCHAR(24) NULL AFTER creator_client_id",
   );
+  await ensureColumn(
+    "rooms",
+    "creator_ip",
+    "creator_ip VARCHAR(64) NULL AFTER creator_name",
+  );
+  await ensureColumn(
+    "rooms",
+    "max_users",
+    "max_users INT NOT NULL DEFAULT 100 AFTER creator_ip",
+  );
+
+  await pool.execute(`
+    UPDATE rooms
+    SET normalized_name = LOWER(TRIM(name))
+    WHERE normalized_name IS NULL
+  `);
 
   await pool.execute(`
     CREATE TABLE IF NOT EXISTS messages (
@@ -109,9 +135,21 @@ export async function initDatabase() {
 
   await pool.execute(
     `
-    INSERT INTO rooms (id, name, password_hash, creator_client_id, creator_name)
-    VALUES ('public', '公開聊天室', NULL, NULL, NULL)
-    ON DUPLICATE KEY UPDATE name = VALUES(name)
+    INSERT INTO rooms (
+      id,
+      name,
+      normalized_name,
+      password_hash,
+      creator_client_id,
+      creator_name,
+      creator_ip,
+      max_users
+    )
+    VALUES ('public', '公開聊天室', '公開聊天室', NULL, NULL, NULL, NULL, 100)
+    ON DUPLICATE KEY UPDATE
+      name = VALUES(name),
+      normalized_name = VALUES(normalized_name),
+      max_users = VALUES(max_users)
     `,
   );
 }

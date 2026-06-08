@@ -12,6 +12,45 @@
   --me: #06c755;
   --other: #ffffff;
   --private: #fff4cc;
+  --private-text: #1f2937;
+  --private-label: #8a6d00;
+  --private-bar-bg: #fff8dd;
+  --private-bar-text: #6f5400;
+  --private-bar-border: #d4af37;
+  --message-bg: #dce8f3;
+  --hover: #f3f6f9;
+  --input-bg: #ffffff;
+  --system-bg: rgba(255, 255, 255, 0.72);
+  --modal-overlay: rgba(17, 24, 39, 0.46);
+  --shadow: rgba(0, 0, 0, 0.24);
+  --danger-bg: #fff5f5;
+  --danger-border: #f1b5b5;
+  --danger-text: #b42318;
+}
+
+body[data-theme="dark"] {
+  --bg: #111827;
+  --surface: #1f2937;
+  --border: #374151;
+  --text: #f9fafb;
+  --muted: #9ca3af;
+  --me: #059669;
+  --other: #374151;
+  --private: #4a3d16;
+  --private-text: #f9fafb;
+  --private-label: #facc15;
+  --private-bar-bg: #2f2610;
+  --private-bar-text: #fde68a;
+  --private-bar-border: #8a6d00;
+  --message-bg: #0f172a;
+  --hover: #273449;
+  --input-bg: #111827;
+  --system-bg: rgba(31, 41, 55, 0.78);
+  --modal-overlay: rgba(0, 0, 0, 0.68);
+  --shadow: rgba(0, 0, 0, 0.48);
+  --danger-bg: #3b1f25;
+  --danger-border: #7f1d1d;
+  --danger-text: #fecaca;
 }
 
 body {
@@ -25,6 +64,11 @@ body {
 button,
 input {
   font: inherit;
+}
+
+input {
+  background: var(--input-bg);
+  color: var(--text);
 }
 
 button {
@@ -42,7 +86,7 @@ button:disabled {
   display: grid;
   place-items: center;
   padding: 24px;
-  background: rgba(17, 24, 39, 0.46);
+  background: var(--modal-overlay);
 }
 
 .hidden {
@@ -56,7 +100,7 @@ button:disabled {
   padding: 24px;
   border-radius: 8px;
   background: var(--surface);
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.24);
+  box-shadow: 0 18px 48px var(--shadow);
 }
 
 .modal-card h1,
@@ -79,6 +123,19 @@ button:disabled {
 
 .modal-card input:focus {
   border-color: var(--line-green);
+}
+
+.modal-card input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
 }
 
 .modal-card button {
@@ -157,6 +214,15 @@ button:disabled {
   font-weight: 700;
 }
 
+.theme-toggle-button {
+  height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 700;
+}
+
 .room-list,
 .member-list {
   display: flex;
@@ -201,10 +267,10 @@ button:disabled {
   min-width: 56px;
   height: 32px;
   margin-right: 12px;
-  border: 1px solid #f1b5b5;
+  border: 1px solid var(--danger-border);
   border-radius: 8px;
-  background: #fff5f5;
-  color: #b42318;
+  background: var(--danger-bg);
+  color: var(--danger-text);
   font-size: 13px;
   font-weight: 700;
 }
@@ -220,7 +286,7 @@ button:disabled {
 .room-item.active .room-open-button,
 .member-item:hover,
 .member-item.active {
-  background: #f3f6f9;
+  background: var(--hover);
 }
 
 .member-item.self {
@@ -305,7 +371,7 @@ button:disabled {
   flex: 1;
   padding: 20px;
   overflow-y: auto;
-  background: #dce8f3;
+  background: var(--message-bg);
 }
 
 .message-row {
@@ -319,7 +385,7 @@ button:disabled {
   margin: 0 auto 12px;
   padding: 4px 10px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.72);
+  background: var(--system-bg);
   color: var(--muted);
   font-size: 12px;
 }
@@ -345,17 +411,18 @@ button:disabled {
 
 .message-row.other .message-bubble {
   background: var(--other);
+  color: var(--text);
   border-bottom-left-radius: 4px;
 }
 
 .message-row.private .message-bubble {
   background: var(--private);
-  color: var(--text);
+  color: var(--private-text);
 }
 
 .private-label {
   margin-bottom: 4px;
-  color: #8a6d00;
+  color: var(--private-label);
   font-size: 12px;
   font-weight: 700;
 }
@@ -375,8 +442,8 @@ button:disabled {
   min-height: 44px;
   padding: 8px 12px;
   border-top: 1px solid var(--border);
-  background: #fff8dd;
-  color: #6f5400;
+  background: var(--private-bar-bg);
+  color: var(--private-bar-text);
   font-size: 14px;
   font-weight: 700;
 }
@@ -384,10 +451,10 @@ button:disabled {
 .private-bar button {
   min-width: 88px;
   height: 32px;
-  border: 1px solid #d4af37;
+  border: 1px solid var(--private-bar-border);
   border-radius: 8px;
-  background: white;
-  color: #6f5400;
+  background: var(--surface);
+  color: var(--private-bar-text);
   font-weight: 700;
 }
 
