@@ -30,6 +30,7 @@ const io = new Server(httpServer, {
 const clientPath = path.join(__dirname, "../client");
 const rooms = new Map();
 const users = new Map();
+const usernameOwners = new Map();
 const lastMessageAtByIp = new Map();
 
 app.use(express.static(clientPath));
@@ -57,10 +58,28 @@ function normalizeUsername(name) {
 }
 
 function isUsernameTaken(normalizedUsername, currentSocketId) {
-  return [...users.entries()].some(
-    ([socketId, user]) =>
-      socketId !== currentSocketId && user.normalizedUsername === normalizedUsername,
-  );
+  const ownerSocketId = usernameOwners.get(normalizedUsername);
+
+  if (!ownerSocketId) return false;
+
+  if (ownerSocketId === currentSocketId) return false;
+
+  if (!users.has(ownerSocketId)) {
+    usernameOwners.delete(normalizedUsername);
+    return false;
+  }
+
+  return true;
+}
+
+function releaseUsername(socketId) {
+  const user = users.get(socketId);
+
+  if (!user) return;
+
+  if (usernameOwners.get(user.normalizedUsername) === socketId) {
+    usernameOwners.delete(user.normalizedUsername);
+  }
 }
 
 function getClientIp(socket) {
@@ -79,16 +98,23 @@ function countChars(text) {
   return Array.from(text).length;
 }
 
-function isMessageRateLimited(ipAddress) {
+function getMessageRateLimit(ipAddress) {
   const now = Date.now();
   const lastMessageAt = lastMessageAtByIp.get(ipAddress) ?? 0;
+  const elapsed = now - lastMessageAt;
 
-  if (now - lastMessageAt < MESSAGE_RATE_LIMIT_MS) {
-    return true;
+  if (elapsed < MESSAGE_RATE_LIMIT_MS) {
+    return {
+      limited: true,
+      retryAfterMs: MESSAGE_RATE_LIMIT_MS - elapsed,
+    };
   }
 
   lastMessageAtByIp.set(ipAddress, now);
-  return false;
+  return {
+    limited: false,
+    retryAfterMs: 0,
+  };
 }
 
 function getPublicRoom(room, user) {
@@ -150,6 +176,38 @@ function getRoomOccupancy(roomId) {
   return io.sockets.adapter.rooms.get(roomId)?.size ?? 0;
 }
 
+async function deleteRoomData(room) {
+  await pool.execute("DELETE FROM messages WHERE room_id = ?", [room.id]);
+  await pool.execute("DELETE FROM rooms WHERE id = ?", [room.id]);
+  rooms.delete(room.id);
+}
+
+async function deleteRoomIfEmpty(roomId) {
+  const room = rooms.get(roomId);
+
+  if (!room || room.id === "public" || getRoomOccupancy(room.id) > 0) {
+    return false;
+  }
+
+  await deleteRoomData(room);
+  emitRoomList();
+  return true;
+}
+
+async function cleanupEmptyRooms() {
+  const emptyRooms = [...rooms.values()].filter(
+    (room) => room.id !== "public" && getRoomOccupancy(room.id) === 0,
+  );
+
+  for (const room of emptyRooms) {
+    await deleteRoomData(room);
+  }
+
+  if (emptyRooms.length > 0) {
+    emitRoomList();
+  }
+}
+
 function validateOutgoingMessage(socket, payload, callback) {
   const user = users.get(socket.id);
   const rawText = String(payload?.text ?? "");
@@ -167,12 +225,15 @@ function validateOutgoingMessage(socket, payload, callback) {
     return null;
   }
 
-  if (isMessageRateLimited(user.ipAddress)) {
+  const rateLimit = getMessageRateLimit(user.ipAddress);
+
+  if (rateLimit.limited) {
     callback?.({
       ok: false,
       code: "RATE_LIMITED",
-      error: "發送太快了，每個 IP 一秒只能發送一次訊息。",
+      error: "發送太快了，每個 IP 每秒最多只能發送一則訊息。",
       rejectedText: rawText,
+      retryAfterMs: rateLimit.retryAfterMs,
     });
     return null;
   }
@@ -249,9 +310,14 @@ async function joinRoom(socket, roomId) {
 
   const previousRoomId = user.currentRoomId;
 
-  if (previousRoomId) {
+  if (previousRoomId && previousRoomId !== room.id) {
     socket.leave(previousRoomId);
-    emitRoomUsers(previousRoomId);
+
+    const wasDeleted = await deleteRoomIfEmpty(previousRoomId);
+
+    if (!wasDeleted) {
+      emitRoomUsers(previousRoomId);
+    }
   }
 
   user.currentRoomId = room.id;
@@ -306,17 +372,10 @@ async function cleanupExpiredData() {
   );
 
   for (const expiredRoom of expiredRooms) {
-    const room = rooms.get(expiredRoom.id);
+    const room = rooms.get(expiredRoom.id) ?? expiredRoom;
 
-    await pool.execute("DELETE FROM messages WHERE room_id = ?", [
-      expiredRoom.id,
-    ]);
-    await pool.execute("DELETE FROM rooms WHERE id = ?", [expiredRoom.id]);
-
-    if (room) {
-      rooms.delete(room.id);
-      await moveRoomMembersToPublic(room);
-    }
+    await deleteRoomData(room);
+    await moveRoomMembersToPublic(room);
   }
 
   if (expiredRooms.length > 0) {
@@ -326,6 +385,7 @@ async function cleanupExpiredData() {
 
 await cleanupExpiredData();
 await loadRooms();
+await cleanupEmptyRooms();
 setInterval(() => {
   cleanupExpiredData().catch((error) => {
     console.error("清理過期資料失敗:", error);
@@ -358,6 +418,7 @@ io.on("connection", (socket) => {
       return;
     }
 
+    releaseUsername(socket.id);
     users.set(socket.id, {
       username: cleanName,
       normalizedUsername,
@@ -365,6 +426,7 @@ io.on("connection", (socket) => {
       ipAddress: socket.data.ipAddress,
       currentRoomId: "",
     });
+    usernameOwners.set(normalizedUsername, socket.id);
 
     callback?.({ ok: true, userId: socket.id });
     await joinRoom(socket, "public");
@@ -374,7 +436,10 @@ io.on("connection", (socket) => {
     const user = users.get(socket.id);
     const name = String(payload?.name ?? "").trim().replace(/\s+/g, " ");
     const normalizedName = normalizeRoomName(name);
-    const password = String(payload?.password ?? "").trim().slice(0, 30);
+    const passwordEnabled = Boolean(payload?.passwordEnabled);
+    const password = passwordEnabled
+      ? String(payload?.password ?? "").trim().slice(0, 30)
+      : "";
     const limitEnabled = Boolean(payload?.limitEnabled);
     const requestedMaxUsers = Number(payload?.maxUsers);
     const maxUsers = limitEnabled
@@ -398,6 +463,11 @@ io.on("connection", (socket) => {
 
     if (findRoomCreatedByIp(user.ipAddress)) {
       callback?.({ ok: false, error: "每個 IP 只能創建一個聊天室" });
+      return;
+    }
+
+    if (passwordEnabled && !password) {
+      callback?.({ ok: false, error: "請輸入聊天室密碼" });
       return;
     }
 
@@ -487,9 +557,7 @@ io.on("connection", (socket) => {
     }
 
     try {
-      await pool.execute("DELETE FROM messages WHERE room_id = ?", [room.id]);
-      await pool.execute("DELETE FROM rooms WHERE id = ?", [room.id]);
-      rooms.delete(room.id);
+      await deleteRoomData(room);
       await moveRoomMembersToPublic(room);
       emitRoomList();
       callback?.({ ok: true });
@@ -623,13 +691,25 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("disconnect", () => {
+  socket.on("disconnect", async () => {
     const user = users.get(socket.id);
     const roomId = user?.currentRoomId;
 
+    releaseUsername(socket.id);
     users.delete(socket.id);
-    emitRoomUsers(roomId);
-    emitRoomList();
+
+    try {
+      const wasDeleted = await deleteRoomIfEmpty(roomId);
+
+      if (!wasDeleted) {
+        emitRoomUsers(roomId);
+        emitRoomList();
+      }
+    } catch (error) {
+      console.error("清理空聊天室失敗:", error);
+      emitRoomUsers(roomId);
+      emitRoomList();
+    }
   });
 });
 

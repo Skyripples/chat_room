@@ -24,6 +24,7 @@ const nameInput = document.getElementById("nameInput");
 const roomModal = document.getElementById("roomModal");
 const roomForm = document.getElementById("roomForm");
 const roomNameInput = document.getElementById("roomNameInput");
+const roomPasswordToggle = document.getElementById("roomPasswordToggle");
 const roomPasswordInput = document.getElementById("roomPasswordInput");
 const roomLimitToggle = document.getElementById("roomLimitToggle");
 const roomLimitInput = document.getElementById("roomLimitInput");
@@ -51,6 +52,10 @@ let roomUsers = [];
 let privateTarget = null;
 let clientUserId = getClientUserId();
 let currentTheme = getInitialTheme();
+const memberNameCollator = new Intl.Collator(undefined, {
+  numeric: true,
+  sensitivity: "base",
+});
 
 applyTheme(currentTheme);
 
@@ -186,6 +191,21 @@ function appendMessage(message) {
   messageList.scrollTop = messageList.scrollHeight;
 }
 
+function sortRoomUsersForDisplay(nextUsers) {
+  return [...nextUsers].sort((first, second) => {
+    const firstIsSelf = first.id === selfId;
+    const secondIsSelf = second.id === selfId;
+
+    if (firstIsSelf && !secondIsSelf) return -1;
+    if (!firstIsSelf && secondIsSelf) return 1;
+
+    return (
+      memberNameCollator.compare(first.username, second.username) ||
+      first.id.localeCompare(second.id)
+    );
+  });
+}
+
 function joinRoom(room) {
   let password = "";
 
@@ -256,7 +276,7 @@ function renderMembers() {
   memberList.innerHTML = "";
   memberCount.textContent = `${roomUsers.length} 人在線`;
 
-  roomUsers.forEach((user) => {
+  sortRoomUsersForDisplay(roomUsers).forEach((user) => {
     const isSelf = user.id === selfId;
     const button = document.createElement("button");
 
@@ -321,6 +341,9 @@ createRoomButton.addEventListener("click", () => {
   }
 
   roomForm.reset();
+  roomPasswordInput.disabled = true;
+  roomPasswordInput.required = false;
+  roomPasswordInput.value = "";
   roomLimitInput.disabled = true;
   roomLimitInput.value = "100";
   roomModal.classList.remove("hidden");
@@ -333,6 +356,17 @@ cancelRoomButton.addEventListener("click", () => {
 
 themeToggleButton.addEventListener("click", () => {
   applyTheme(currentTheme === "dark" ? "light" : "dark");
+});
+
+roomPasswordToggle.addEventListener("change", () => {
+  roomPasswordInput.disabled = !roomPasswordToggle.checked;
+  roomPasswordInput.required = roomPasswordToggle.checked;
+
+  if (roomPasswordToggle.checked) {
+    roomPasswordInput.focus();
+  } else {
+    roomPasswordInput.value = "";
+  }
 });
 
 roomLimitToggle.addEventListener("change", () => {
@@ -350,6 +384,14 @@ roomForm.addEventListener("submit", (event) => {
 
   const limitEnabled = roomLimitToggle.checked;
   const maxUsers = Number(roomLimitInput.value);
+  const passwordEnabled = roomPasswordToggle.checked;
+  const password = roomPasswordInput.value.trim();
+
+  if (passwordEnabled && !password) {
+    window.alert("請輸入聊天室密碼");
+    roomPasswordInput.focus();
+    return;
+  }
 
   if (limitEnabled && (!Number.isInteger(maxUsers) || maxUsers < 2 || maxUsers > 100)) {
     window.alert("人數限制必須介於 2 到 100 人");
@@ -361,7 +403,8 @@ roomForm.addEventListener("submit", (event) => {
     "create-room",
     {
       name: roomNameInput.value.trim(),
-      password: roomPasswordInput.value.trim(),
+      password: passwordEnabled ? password : "",
+      passwordEnabled,
       limitEnabled,
       maxUsers,
     },

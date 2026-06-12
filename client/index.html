@@ -30,16 +30,19 @@
       <input
         type="text"
         id="roomNameInput"
-        placeholder="例如：夜貓聊天"
         maxlength="60"
         required
       />
-      <label for="roomPasswordInput">密碼</label>
+      <label class="checkbox-row" for="roomPasswordToggle">
+        <input type="checkbox" id="roomPasswordToggle" />
+        <span>設定密碼</span>
+      </label>
       <input
         type="password"
         id="roomPasswordInput"
-        placeholder="留空就是公開聊天室"
+        aria-label="聊天室密碼"
         maxlength="30"
+        disabled
       />
       <label class="checkbox-row" for="roomLimitToggle">
         <input type="checkbox" id="roomLimitToggle" />
